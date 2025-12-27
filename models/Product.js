@@ -39,14 +39,19 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Each feature now represents a size (or number) + quantity
   features: [{
     size: String,
-    color: String,
-    price: Number
+    quantity: Number
   }],
+  // Colors are now an independent array of strings
+  colors: {
+    type: [String],
+    default: []
+  },
   featureType: {
     type: String,
-    enum: ['size', 'color', 'both','number'],
+    enum: ['size', 'color', 'both', 'number'],
     default: 'size'
   },
   stock: {

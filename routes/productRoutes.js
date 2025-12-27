@@ -19,7 +19,7 @@ const validateProduct = [
 // @access  Public
 router.get('/', async (req, res) => {
   try {
-    const { category, search, active } = req.query;
+    const { category, search, active, bestseller } = req.query;
     const query = {};
 
     if (category && category !== 'all') {
@@ -28,6 +28,10 @@ router.get('/', async (req, res) => {
 
     if (active !== 'false') {
       query.active = true;
+    }
+
+    if (bestseller === 'true') {
+      query.isBestseller = true;
     }
 
     if (search) {
@@ -41,6 +45,34 @@ router.get('/', async (req, res) => {
     res.json(products);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching products', error: error.message });
+  }
+});
+
+// @route   GET /api/products/bestsellers/list
+// @desc    Get best selling products (limited to 4, newest first)
+// @access  Public
+router.get('/bestsellers/list', async (req, res) => {
+  try {
+    const bestSellers = await Product.find({ isBestseller: true })
+      .sort({ createdAt: -1 })
+      .limit(4);
+    res.json(bestSellers);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching best sellers', error: error.message });
+  }
+});
+
+// @route   GET /api/products/new-arrivals/list
+// @desc    Get new arrivals (limited to 4, newest first)
+// @access  Public
+router.get('/new-arrivals/list', async (req, res) => {
+  try {
+    const newArrivals = await Product.find()
+      .sort({ createdAt: -1 })
+      .limit(4);
+    res.json(newArrivals);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching new arrivals', error: error.message });
   }
 });
 
@@ -74,7 +106,7 @@ router.post('/', protect, admin, upload.array('images', 10), validateProduct, as
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, category, price, originalPrice, description, isBestseller, isNew, features, featureType, stock } = req.body;
+    const { name, category, price, originalPrice, description, isBestseller, isNew, features, featureType, stock, colors } = req.body;
 
     // Determine image URLs from either uploaded files or a provided images array
     let imageUrls = [];
@@ -95,16 +127,40 @@ router.post('/', protect, admin, upload.array('images', 10), validateProduct, as
       console.log('⚠️  No image files or images array provided');
     }
 
+    let parsedFeatures = [];
+    if (features) {
+      try {
+        const parsed = typeof features === 'string' ? JSON.parse(features) : features;
+        // Normalize incoming features to { size, quantity }
+        parsedFeatures = Array.isArray(parsed)
+          ? parsed.map((f) => ({ size: f.size || f.label || '', quantity: Number(f.quantity ?? f.qty ?? 0) }))
+          : [];
+      } catch (e) {
+        parsedFeatures = [];
+      }
+    }
+
+    // Auto-calculate root price from lowest variant price
+    let finalPrice = parseFloat(price);
+    if (parsedFeatures.length > 0) {
+      const variantPrices = parsedFeatures.map(f => parseFloat(f.quantity) || 0).filter(p => p > 0);
+      if (variantPrices.length > 0) {
+        finalPrice = Math.min(...variantPrices);
+        console.log(`✅ Auto-set root price to ${finalPrice} (lowest variant price)`);
+      }
+    }
+
     const productData = {
       name,
       category,
-      price: parseFloat(price),
+      price: finalPrice,
       originalPrice: originalPrice ? parseFloat(originalPrice) : null,
       description: description || '',
       isBestseller: isBestseller === 'true' || isBestseller === true,
       isNew: isNew === 'true' || isNew === true,
       featureType: featureType || 'size',
-      stock: stock ? parseInt(stock) : 0
+      stock: stock ? parseInt(stock) : 0,
+      features: parsedFeatures
     };
 
     // Set primary image and images array
@@ -113,11 +169,12 @@ router.post('/', protect, admin, upload.array('images', 10), validateProduct, as
       productData.images = imageUrls;
     }
 
-    if (features) {
+    if (colors) {
       try {
-        productData.features = typeof features === 'string' ? JSON.parse(features) : features;
+        productData.colors = typeof colors === 'string' ? JSON.parse(colors) : colors;
+        if (!Array.isArray(productData.colors)) productData.colors = [];
       } catch (e) {
-        productData.features = [];
+        productData.colors = [];
       }
     }
 
@@ -146,12 +203,25 @@ router.put('/:id', protect, admin, upload.array('images', 10), validateProduct, 
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    const { name, category, price, originalPrice, description, isBestseller, isNew, features, featureType, stock, active, existingImages } = req.body;
+    const { name, category, price, originalPrice, description, isBestseller, isNew, features, featureType, stock, active, existingImages, colors } = req.body;
 
-    // Update fields
+    // Update features (normalize to size + quantity) FIRST so we can use them to set root price
+    let updatedFeatures = product.features || [];
+    if (features) {
+      try {
+        const parsed = typeof features === 'string' ? JSON.parse(features) : features;
+        updatedFeatures = Array.isArray(parsed)
+          ? parsed.map((f) => ({ size: f.size || f.label || '', quantity: Number(f.quantity ?? f.qty ?? 0) }))
+          : product.features;
+      } catch (e) {
+        // Keep existing features if parsing fails
+      }
+    }
+    product.features = updatedFeatures;
+
+    // Update basic fields
     product.name = name;
     product.category = category;
-    product.price = parseFloat(price);
     product.originalPrice = originalPrice ? parseFloat(originalPrice) : null;
     product.description = description || '';
     product.isBestseller = isBestseller === 'true' || isBestseller === true;
@@ -161,6 +231,17 @@ router.put('/:id', protect, admin, upload.array('images', 10), validateProduct, 
     if (active !== undefined) {
       product.active = active === 'true' || active === true;
     }
+
+    // Auto-calculate root price from lowest variant price
+    let finalPrice = parseFloat(price);
+    if (updatedFeatures.length > 0) {
+      const variantPrices = updatedFeatures.map(f => parseFloat(f.quantity) || 0).filter(p => p > 0);
+      if (variantPrices.length > 0) {
+        finalPrice = Math.min(...variantPrices);
+        console.log(`✅ Auto-set root price to ${finalPrice} (lowest variant price)`);
+      }
+    }
+    product.price = finalPrice;
 
     // ✅ CLOUDINARY UPDATE: Handle New Images
     // We don't need to manually delete files from disk anymore!
@@ -199,12 +280,15 @@ router.put('/:id', protect, admin, upload.array('images', 10), validateProduct, 
       }
     }
 
-    // Update features
-    if (features) {
+    // Update colors
+    if (colors) {
       try {
-        product.features = typeof features === 'string' ? JSON.parse(features) : features;
+        const parsedColors = typeof colors === 'string' ? JSON.parse(colors) : colors;
+        if (Array.isArray(parsedColors)) {
+          product.colors = parsedColors;
+        }
       } catch (e) {
-        // Keep existing features if parsing fails
+        // ignore parse errors
       }
     }
 
