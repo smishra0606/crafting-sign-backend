@@ -131,9 +131,13 @@ router.post('/', protect, admin, upload.array('images', 10), validateProduct, as
     if (features) {
       try {
         const parsed = typeof features === 'string' ? JSON.parse(features) : features;
-        // Normalize incoming features to { size, quantity }
+        // Normalize incoming features to { size, price, quantity }
         parsedFeatures = Array.isArray(parsed)
-          ? parsed.map((f) => ({ size: f.size || f.label || '', quantity: Number(f.quantity ?? f.qty ?? 0) }))
+          ? parsed.map((f) => ({
+              size: f.size || f.label || '',
+              price: Number(f.price ?? f.quantity ?? 0),
+              quantity: parseInt(f.quantity ?? f.qty ?? 0, 10) || 0
+            }))
           : [];
       } catch (e) {
         parsedFeatures = [];
@@ -143,7 +147,7 @@ router.post('/', protect, admin, upload.array('images', 10), validateProduct, as
     // Auto-calculate root price from lowest variant price
     let finalPrice = parseFloat(price);
     if (parsedFeatures.length > 0) {
-      const variantPrices = parsedFeatures.map(f => parseFloat(f.quantity) || 0).filter(p => p > 0);
+      const variantPrices = parsedFeatures.map(f => Number(f.price) || 0).filter(p => p > 0);
       if (variantPrices.length > 0) {
         finalPrice = Math.min(...variantPrices);
         console.log(`✅ Auto-set root price to ${finalPrice} (lowest variant price)`);
@@ -205,13 +209,17 @@ router.put('/:id', protect, admin, upload.array('images', 10), validateProduct, 
 
     const { name, category, price, originalPrice, description, isBestseller, isNew, features, featureType, stock, active, existingImages, colors } = req.body;
 
-    // Update features (normalize to size + quantity) FIRST so we can use them to set root price
+    // Update features (normalize to size + price + quantity) FIRST so we can use them to set root price
     let updatedFeatures = product.features || [];
     if (features) {
       try {
         const parsed = typeof features === 'string' ? JSON.parse(features) : features;
         updatedFeatures = Array.isArray(parsed)
-          ? parsed.map((f) => ({ size: f.size || f.label || '', quantity: Number(f.quantity ?? f.qty ?? 0) }))
+          ? parsed.map((f) => ({
+              size: f.size || f.label || '',
+              price: Number(f.price ?? f.quantity ?? 0),
+              quantity: parseInt(f.quantity ?? f.qty ?? 0, 10) || 0
+            }))
           : product.features;
       } catch (e) {
         // Keep existing features if parsing fails
@@ -235,7 +243,7 @@ router.put('/:id', protect, admin, upload.array('images', 10), validateProduct, 
     // Auto-calculate root price from lowest variant price
     let finalPrice = parseFloat(price);
     if (updatedFeatures.length > 0) {
-      const variantPrices = updatedFeatures.map(f => parseFloat(f.quantity) || 0).filter(p => p > 0);
+      const variantPrices = updatedFeatures.map(f => Number(f.price) || 0).filter(p => p > 0);
       if (variantPrices.length > 0) {
         finalPrice = Math.min(...variantPrices);
         console.log(`✅ Auto-set root price to ${finalPrice} (lowest variant price)`);

@@ -39,10 +39,17 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  // Each feature now represents a size (or number) + quantity
+  // Each feature now represents a size (or number) + price + quantity
   features: [{
     size: String,
-    quantity: Number
+    price: {
+      type: Number,
+      default: 0
+    },
+    quantity: {
+      type: Number,
+      default: 0
+    }
   }],
   // Colors are now an independent array of strings
   colors: {
