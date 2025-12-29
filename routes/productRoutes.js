@@ -2,7 +2,8 @@ import express from 'express';
 import Product from '../models/Product.js';
 import { protect, admin } from '../middleware/auth.js';
 import { body, validationResult } from 'express-validator';
-import upload from '../config/cloudinary.js'; // ✅ Using Cloudinary Config
+import upload from '../middleware/uploadMiddleware.js'; // Cloudinary multer middleware
+import { createProduct } from '../controllers/productController.js';
 
 const router = express.Router();
 
@@ -99,98 +100,7 @@ router.get('/:id', async (req, res) => {
 // @route   POST /api/products
 // @desc    Create new product with Cloudinary Image Upload
 // @access  Private/Admin
-router.post('/', protect, admin, upload.array('images', 10), validateProduct, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const { name, category, price, originalPrice, description, isBestseller, isNew, features, featureType, stock, colors } = req.body;
-
-    // Determine image URLs from either uploaded files or a provided images array
-    let imageUrls = [];
-    if (req.files && req.files.length > 0) {
-      // Cloudinary provides the full URL in 'file.path'
-      imageUrls = req.files.map((file) => file.path);
-      console.log(`✅ ${req.files.length} image(s) uploaded to Cloudinary`);
-    } else if (req.body && req.body.images) {
-      try {
-        imageUrls = typeof req.body.images === 'string' ? JSON.parse(req.body.images) : req.body.images;
-        if (!Array.isArray(imageUrls)) imageUrls = [];
-        console.log(`✅ Using ${imageUrls.length} image URL(s) from request body`);
-      } catch (e) {
-        console.log('⚠️  Could not parse images array from body');
-        imageUrls = [];
-      }
-    } else {
-      console.log('⚠️  No image files or images array provided');
-    }
-
-    let parsedFeatures = [];
-    if (features) {
-      try {
-        const parsed = typeof features === 'string' ? JSON.parse(features) : features;
-        // Normalize incoming features to { size, price, quantity }
-        parsedFeatures = Array.isArray(parsed)
-          ? parsed.map((f) => ({
-              size: f.size || f.label || '',
-              price: Number(f.price ?? f.quantity ?? 0),
-              quantity: parseInt(f.quantity ?? f.qty ?? 0, 10) || 0
-            }))
-          : [];
-      } catch (e) {
-        parsedFeatures = [];
-      }
-    }
-
-    // Auto-calculate root price from lowest variant price
-    let finalPrice = parseFloat(price);
-    if (parsedFeatures.length > 0) {
-      const variantPrices = parsedFeatures.map(f => Number(f.price) || 0).filter(p => p > 0);
-      if (variantPrices.length > 0) {
-        finalPrice = Math.min(...variantPrices);
-        console.log(`✅ Auto-set root price to ${finalPrice} (lowest variant price)`);
-      }
-    }
-
-    const productData = {
-      name,
-      category,
-      price: finalPrice,
-      originalPrice: originalPrice ? parseFloat(originalPrice) : null,
-      description: description || '',
-      isBestseller: isBestseller === 'true' || isBestseller === true,
-      isNew: isNew === 'true' || isNew === true,
-      featureType: featureType || 'size',
-      stock: stock ? parseInt(stock) : 0,
-      features: parsedFeatures
-    };
-
-    // Set primary image and images array
-    if (imageUrls.length > 0) {
-      productData.image = imageUrls[0];
-      productData.images = imageUrls;
-    }
-
-    if (colors) {
-      try {
-        productData.colors = typeof colors === 'string' ? JSON.parse(colors) : colors;
-        if (!Array.isArray(productData.colors)) productData.colors = [];
-      } catch (e) {
-        productData.colors = [];
-      }
-    }
-
-    const product = new Product(productData);
-    const createdProduct = await product.save(); // Capture created product
-
-    res.status(201).json(createdProduct);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Error creating product', error: error.message });
-  }
-});
+router.post('/', protect, admin, upload.single('image'), validateProduct, createProduct);
 
 // @route   PUT /api/products/:id
 // @desc    Update product
