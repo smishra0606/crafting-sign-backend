@@ -13,6 +13,13 @@ router.post('/', protect, admin, upload.single('file'), async (req, res) => {
       return res.status(400).json({ message: 'No file provided' });
     }
     // Cloudinary storage exposes the uploaded path in req.file.path
+    // Log file info for debugging upload issues
+    console.log('Upload successful, file:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      path: req.file.path
+    });
     return res.status(201).json({ url: req.file.path });
   } catch (error) {
     console.error('Upload error:', error);
