@@ -98,15 +98,26 @@ router.get('/:id', async (req, res) => {
 });
 
 // @route   POST /api/products
-// @desc    Create new product with Cloudinary Image Upload
+// @desc    Create new product (images pre-uploaded to /api/uploads and sent as URLs in JSON body)
 // @access  Private/Admin
-router.post('/', protect, admin, upload.single('image'), validateProduct, createProduct);
+router.post('/', protect, admin, validateProduct, createProduct);
 
 // @route   PUT /api/products/:id
 // @desc    Update product
 // @access  Private/Admin
 router.put('/:id', protect, admin, upload.array('images', 10), validateProduct, async (req, res) => {
   try {
+    // Debug logs to trace update requests
+    console.log('PUT /api/products/:id called with id=', req.params.id);
+    console.log('Request body keys:', Object.keys(req.body || {}));
+    console.log('Request body preview:', {
+      name: req.body.name,
+      category: req.body.category,
+      images_present: !!req.body.images,
+      image_present: !!req.body.image
+    });
+    console.log('Uploaded files count:', req.files ? req.files.length : 0);
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -161,17 +172,16 @@ router.put('/:id', protect, admin, upload.array('images', 10), validateProduct, 
     }
     product.price = finalPrice;
 
-    // ✅ CLOUDINARY UPDATE: Handle New Images
-    // We don't need to manually delete files from disk anymore!
+    // Handle new images uploaded via multipart (memory buffer) or passed as existing JSON
     if (req.files && req.files.length > 0) {
-      console.log(`✅ Updating product with ${req.files.length} new image(s) from Cloudinary`);
-      
-      const newImageUrls = req.files.map(file => file.path);
-      
-      // Strategy: Replace old images with new ones (or you could append them if you prefer)
-      product.images = newImageUrls;
-      product.image = newImageUrls[0];
-      
+      console.log(`✅ Updating product with ${req.files.length} new image(s) uploaded to server`);
+
+      const newImages = req.files.map(file => `data:${file.mimetype};base64,${file.buffer.toString('base64')}`);
+
+      // Strategy: Replace old images with new ones (you could append instead if preferred)
+      product.images = newImages;
+      product.image = newImages[0];
+
     } else if (existingImages) {
       // Logic to keep existing images if no new ones are uploaded
       try {

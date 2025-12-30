@@ -12,31 +12,23 @@ export const createProduct = async (req, res) => {
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
-
     // Accept multiple upload flows:
-    // - Admin uploads file directly to /products with multipart (req.file)
-    // - Frontend uploads files to /uploads and sends image URLs in `images` or `image` in JSON body
-    let imageUrl = null;
-    if (req.file) {
-      imageUrl = req.file.path || req.file.secure_url || null;
+    // - Frontend uploads files to /api/uploads (returns Spaces URLs) and sends them in `images` array
+    // - Backend should NOT receive multipart files here anymore (no upload middleware on POST /api/products)
+    let images = [];
+
+    // Read images from request body (sent by frontend as JSON)
+    if (req.body && req.body.images) {
+      try {
+        const imagesArray = typeof req.body.images === 'string' ? JSON.parse(req.body.images) : req.body.images;
+        if (Array.isArray(imagesArray)) images = imagesArray.filter(img => img); // Remove empty strings
+      } catch (e) {
+        // ignore parse error
+      }
     }
 
-    // If no file was uploaded, try images array or single image from request body
-    if (!imageUrl) {
-      if (req.body && req.body.images) {
-        try {
-          const imagesArray = typeof req.body.images === 'string' ? JSON.parse(req.body.images) : req.body.images;
-          if (Array.isArray(imagesArray) && imagesArray.length > 0) {
-            imageUrl = imagesArray[0];
-          }
-        } catch (e) {
-          // ignore parse errors
-        }
-      }
-
-      if (!imageUrl && req.body && req.body.image) {
-        imageUrl = req.body.image;
-      }
+    if (images.length === 0 && req.body && req.body.image) {
+      images = [req.body.image];
     }
 
     const {
@@ -84,10 +76,9 @@ export const createProduct = async (req, res) => {
       stock: stock ? parseInt(stock, 10) : 0,
       features: Array.isArray(parsedFeatures) ? parsedFeatures : [],
       colors: Array.isArray(parsedColors) ? parsedColors : [],
-      image: imageUrl || '',
-      images: (req.body && req.body.images)
-        ? (typeof req.body.images === 'string' ? JSON.parse(req.body.images) : req.body.images)
-        : (imageUrl ? [imageUrl] : []),
+      // Store Base64 data URIs (or incoming URLs) directly in DB
+      image: images[0] || '',
+      images,
     };
 
     const product = new Product(productData);

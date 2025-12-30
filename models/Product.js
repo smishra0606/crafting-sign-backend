@@ -19,6 +19,7 @@ const productSchema = new mongoose.Schema({
     type: Number,
     default: null
   },
+  // `image` and `images` will store image data URIs (e.g. "data:image/jpeg;base64,...")
   image: {
     type: String,
     default: ''

@@ -1,7 +1,18 @@
 import express from 'express';
 import Category from '../models/Category.js';
 import { protect, admin } from '../middleware/auth.js';
-import upload from '../config/cloudinary.js';
+import upload from '../middleware/uploadMiddleware.js';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+
+const spacesEndpoint = process.env.SPACES_ENDPOINT;
+const s3Client = new S3Client({
+  region: process.env.SPACES_REGION || 'us-east-1',
+  endpoint: spacesEndpoint ? `https://${spacesEndpoint}` : undefined,
+  credentials: {
+    accessKeyId: process.env.SPACES_KEY,
+    secretAccessKey: process.env.SPACES_SECRET,
+  },
+});
 
 const router = express.Router();
 
@@ -88,12 +99,34 @@ router.delete('/:id', protect, admin, async (req, res) => {
 export default router;
 
 // @route   POST /api/categories/upload
-// @desc    Upload a single category image to Cloudinary
+// @desc    Upload a single category image to DigitalOcean Spaces
 // @access  Private/Admin
-router.post('/upload', protect, admin, upload.single('image'), (req, res) => {
+router.post('/upload', protect, admin, upload.single('image'), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-    return res.status(201).json({ url: req.file.path });
+    const file = req.file;
+    if (!file || !file.buffer) return res.status(400).json({ message: 'No file uploaded' });
+
+    const bucket = process.env.SPACES_BUCKET;
+    if (!bucket) return res.status(500).json({ message: 'SPACES_BUCKET not configured' });
+
+    const key = `categories/${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const putParams = {
+      Bucket: bucket,
+      Key: key,
+      Body: file.buffer,
+      ACL: 'public-read',
+      ContentType: file.mimetype,
+    };
+
+    try {
+      await s3Client.send(new PutObjectCommand(putParams));
+    } catch (err) {
+      console.error('Spaces upload error (category):', err);
+      return res.status(500).json({ message: 'Upload to storage failed', error: err.message });
+    }
+
+    const publicUrl = process.env.SPACES_BASE_URL || `https://${bucket}.${spacesEndpoint}/${key}`;
+    return res.status(201).json({ url: publicUrl });
   } catch (error) {
     console.error('Category upload error:', error);
     res.status(500).json({ message: 'Upload failed', error: error.message });
