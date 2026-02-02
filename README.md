@@ -28,7 +28,6 @@ crafting-sign-backend/
 ├── ecosystem.config.js # PM2 configuration
 ├── server.js        # Entry point
 └── package.json
-```
 🚀 Getting Started
 Follow these steps to set up the backend environment locally.
 
